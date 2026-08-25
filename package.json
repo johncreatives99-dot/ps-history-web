@@ -1,0 +1,13 @@
+{
+  "name": "ps-history-web",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "description": "Mobile-friendly hosted page showing your real PlayStation Network game history",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "psn-api": "^2.18.1"
+  }
+}

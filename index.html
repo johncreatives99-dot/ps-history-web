@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>My PS Games</title>
+<style>
+  :root {
+    --bg: #0b0e14;
+    --surface: #12161f;
+    --surface-2: #1a2030;
+    --border: #262b36;
+    --text: #e8eaf0;
+    --text-dim: #9aa4b2;
+    --accent: #4a86e8;
+    --accent-2: #43d692;
+    --danger: #f26d6d;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    min-height: 100vh;
+  }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 1.25rem 1rem 3rem; }
+  h1 { font-size: 1.4rem; margin: 0.25rem 0 0.1rem; }
+  .subtitle { color: var(--text-dim); font-size: 0.9rem; margin-bottom: 1.5rem; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1rem;
+  }
+
+  label { display: block; font-size: 0.85rem; color: var(--text-dim); margin-bottom: 0.4rem; }
+  input[type="text"], input[type="password"] {
+    width: 100%;
+    padding: 0.85rem 0.9rem;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--text);
+    font-size: 1rem;
+  }
+  input:focus { outline: 2px solid var(--accent); }
+
+  button {
+    font-size: 1rem;
+    font-weight: 600;
+    border: none;
+    border-radius: 10px;
+    padding: 0.85rem 1rem;
+    cursor: pointer;
+  }
+  .btn-primary { background: var(--accent); color: white; width: 100%; margin-top: 0.9rem; }
+  .btn-primary:disabled { opacity: 0.6; }
+  .btn-ghost { background: transparent; color: var(--text-dim); border: 1px solid var(--border); }
+
+  details { margin-top: 1rem; color: var(--text-dim); font-size: 0.9rem; }
+  summary { cursor: pointer; color: var(--accent); }
+  details ol { padding-left: 1.2rem; }
+  details a { color: var(--accent-2); }
+  code {
+    background: var(--surface-2);
+    padding: 0.1rem 0.35rem;
+    border-radius: 5px;
+    font-size: 0.85em;
+    word-break: break-all;
+  }
+
+  .error {
+    background: rgba(242, 109, 109, 0.12);
+    border: 1px solid rgba(242, 109, 109, 0.4);
+    color: var(--danger);
+    padding: 0.75rem 1rem;
+    border-radius: 10px;
+    font-size: 0.9rem;
+    margin-top: 1rem;
+    display: none;
+  }
+
+  .toolbar { display: flex; gap: 0.6rem; margin-bottom: 1rem; align-items: center; }
+  .toolbar input { flex: 1; }
+  .toolbar button { padding: 0.7rem 0.9rem; flex-shrink: 0; }
+
+  .meta-row { display: flex; justify-content: space-between; align-items: center; color: var(--text-dim); font-size: 0.85rem; margin-bottom: 0.75rem; }
+  .meta-row button { padding: 0.4rem 0.7rem; font-size: 0.8rem; }
+
+  .game-list { display: flex; flex-direction: column; gap: 0.6rem; }
+  .game-card {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 0.7rem;
+  }
+  .game-card img {
+    width: 56px; height: 56px; border-radius: 8px; object-fit: cover;
+    background: var(--surface-2); flex-shrink: 0;
+  }
+  .game-info { flex: 1; min-width: 0; }
+  .game-title { font-weight: 600; font-size: 0.95rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .game-sub { display: flex; gap: 0.5rem; align-items: center; margin-top: 0.3rem; flex-wrap: wrap; }
+  .badge {
+    font-size: 0.72rem; padding: 0.15rem 0.5rem; border-radius: 999px;
+    background: var(--surface-2); color: var(--text-dim); border: 1px solid var(--border);
+  }
+  .progress-track { height: 5px; background: var(--surface-2); border-radius: 3px; margin-top: 0.5rem; overflow: hidden; }
+  .progress-fill { height: 100%; background: var(--accent-2); }
+  .last-played { font-size: 0.72rem; color: var(--text-dim); margin-top: 0.35rem; }
+
+  .empty { text-align: center; color: var(--text-dim); padding: 3rem 1rem; }
+  .spinner {
+    width: 22px; height: 22px; border-radius: 50%;
+    border: 3px solid var(--border); border-top-color: var(--accent);
+    animation: spin 0.8s linear infinite; margin: 0 auto;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  #games-view { display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>My PS Games</h1>
+  <p class="subtitle">Your real PlayStation Network game &amp; trophy history</p>
+
+  <!-- CONNECT VIEW -->
+  <div id="connect-view" class="card">
+    <label for="npsso-input">NPSSO token</label>
+    <input id="npsso-input" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Paste your 64-character NPSSO" />
+    <button id="connect-btn" class="btn-primary">Connect</button>
+    <div id="connect-error" class="error"></div>
+
+    <details>
+      <summary>How do I get my NPSSO?</summary>
+      <ol>
+        <li>Open a new tab and sign in at <a href="https://www.playstation.com/" target="_blank" rel="noopener">playstation.com</a>.</li>
+        <li>In that <strong>same tab</strong>, go to
+          <a href="https://ca.account.sony.com/api/v1/ssocookie" target="_blank" rel="noopener">ca.account.sony.com/api/v1/ssocookie</a>.</li>
+        <li>You'll see <code>{"npsso":"..."}</code> &mdash; copy the long value between the quotes.</li>
+        <li>Paste it above and tap Connect.</li>
+      </ol>
+      <p>This token is as sensitive as your password &mdash; only paste it here, never share it.</p>
+    </details>
+  </div>
+
+  <!-- GAMES VIEW -->
+  <div id="games-view">
+    <div class="toolbar">
+      <input id="search-input" type="text" placeholder="Search your games…" />
+      <button id="refresh-btn" class="btn-ghost">↻</button>
+    </div>
+    <div class="meta-row">
+      <span id="count-label"></span>
+      <button id="signout-btn" class="btn-ghost">Sign out</button>
+    </div>
+    <div id="game-list" class="game-list"></div>
+  </div>
+
+  <div id="loading" class="empty" style="display:none;">
+    <div class="spinner"></div>
+    <p>Talking to PlayStation Network…</p>
+  </div>
+</div>
+
+<script>
+  const STORAGE_KEY = "psn_refresh_token";
+  const API_URL = "/api/games";
+
+  const connectView = document.getElementById("connect-view");
+  const gamesView = document.getElementById("games-view");
+  const loading = document.getElementById("loading");
+  const npssoInput = document.getElementById("npsso-input");
+  const connectBtn = document.getElementById("connect-btn");
+  const connectError = document.getElementById("connect-error");
+  const gameList = document.getElementById("game-list");
+  const searchInput = document.getElementById("search-input");
+  const countLabel = document.getElementById("count-label");
+  const refreshBtn = document.getElementById("refresh-btn");
+  const signoutBtn = document.getElementById("signout-btn");
+
+  let allRows = [];
+
+  function showLoading(isLoading) {
+    loading.style.display = isLoading ? "block" : "none";
+    connectView.style.display = isLoading ? "none" : connectView.dataset.forceHide === "1" ? "none" : connectView.style.display;
+    gamesView.style.display = isLoading ? "none" : gamesView.style.display;
+  }
+
+  function showConnectView(errorMessage) {
+    connectView.dataset.forceHide = "0";
+    connectView.style.display = "block";
+    gamesView.style.display = "none";
+    loading.style.display = "none";
+    if (errorMessage) {
+      connectError.textContent = errorMessage;
+      connectError.style.display = "block";
+    } else {
+      connectError.style.display = "none";
+    }
+  }
+
+  function showGamesView() {
+    connectView.dataset.forceHide = "1";
+    connectView.style.display = "none";
+    gamesView.style.display = "block";
+    loading.style.display = "none";
+  }
+
+  function timeAgo(iso) {
+    const then = new Date(iso).getTime();
+    const days = Math.floor((Date.now() - then) / 86400000);
+    if (days <= 0) return "Today";
+    if (days === 1) return "Yesterday";
+    if (days < 30) return `${days} days ago`;
+    if (days < 365) return `${Math.floor(days / 30)} mo ago`;
+    return `${Math.floor(days / 365)} yr ago`;
+  }
+
+  function render(rows) {
+    countLabel.textContent = `${rows.length} game${rows.length === 1 ? "" : "s"}`;
+
+    if (rows.length === 0) {
+      gameList.innerHTML = `<div class="empty">No games matched.</div>`;
+      return;
+    }
+
+    gameList.innerHTML = rows
+      .map(
+        (r) => `
+      <div class="game-card">
+        <img src="${r.icon || ""}" alt="" loading="lazy" onerror="this.style.visibility='hidden'" />
+        <div class="game-info">
+          <div class="game-title">${escapeHtml(r.game)}</div>
+          <div class="game-sub">
+            <span class="badge">${escapeHtml(r.platform)}</span>
+            <span class="badge">${r.trophies} trophies</span>
+          </div>
+          <div class="progress-track"><div class="progress-fill" style="width:${r.progress}%"></div></div>
+          <div class="last-played">${r.progress}% · Last played ${timeAgo(r.lastPlayed)}</div>
+        </div>
+      </div>`
+      )
+      .join("");
+  }
+
+  function escapeHtml(v) {
+    return String(v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  async function connect(payload) {
+    showLoading(true);
+    try {
+      const res = await fetch(API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        localStorage.removeItem(STORAGE_KEY);
+        showConnectView(data.error || "Something went wrong. Please try again.");
+        return;
+      }
+
+      localStorage.setItem(STORAGE_KEY, data.refreshToken);
+      allRows = data.rows;
+      render(allRows);
+      showGamesView();
+    } catch (err) {
+      showConnectView("Network error — check your connection and try again.");
+    }
+  }
+
+  connectBtn.addEventListener("click", () => {
+    const npsso = npssoInput.value.trim();
+    if (!npsso) {
+      showConnectView("Paste your NPSSO token first.");
+      return;
+    }
+    connect({ npsso });
+  });
+
+  refreshBtn.addEventListener("click", () => {
+    const refreshToken = localStorage.getItem(STORAGE_KEY);
+    if (refreshToken) connect({ refreshToken });
+  });
+
+  signoutBtn.addEventListener("click", () => {
+    localStorage.removeItem(STORAGE_KEY);
+    allRows = [];
+    npssoInput.value = "";
+    showConnectView();
+  });
+
+  searchInput.addEventListener("input", () => {
+    const q = searchInput.value.trim().toLowerCase();
+    render(q ? allRows.filter((r) => r.game.toLowerCase().includes(q)) : allRows);
+  });
+
+  // Auto-connect on load if we already have a session.
+  const savedToken = localStorage.getItem(STORAGE_KEY);
+  if (savedToken) {
+    connect({ refreshToken: savedToken });
+  } else {
+    showConnectView();
+  }
+</script>
+</body>
+</html>
