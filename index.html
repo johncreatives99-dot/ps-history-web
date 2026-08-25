@@ -14,6 +14,7 @@
     --text-dim: #9aa4b2;
     --accent: #4a86e8;
     --accent-2: #43d692;
+    --warn: #f2b84a;
     --danger: #f26d6d;
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -27,17 +28,26 @@
   }
   .wrap { max-width: 640px; margin: 0 auto; padding: 1.25rem 1rem 3rem; }
   h1 { font-size: 1.4rem; margin: 0.25rem 0 0.1rem; }
-  .subtitle { color: var(--text-dim); font-size: 0.9rem; margin-bottom: 1.5rem; }
+  .subtitle { color: var(--text-dim); font-size: 0.9rem; margin-bottom: 1.25rem; }
+
+  .tabs { display: flex; gap: 0.5rem; margin-bottom: 1.25rem; border-bottom: 1px solid var(--border); }
+  .tab-btn {
+    flex: 1; background: transparent; color: var(--text-dim); border: none;
+    border-bottom: 2px solid transparent; border-radius: 0;
+    padding: 0.7rem 0.5rem; font-size: 0.95rem; font-weight: 600;
+  }
+  .tab-btn.active { color: var(--text); border-bottom-color: var(--accent); }
 
   .card {
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 14px;
     padding: 1rem;
+    margin-bottom: 1rem;
   }
 
   label { display: block; font-size: 0.85rem; color: var(--text-dim); margin-bottom: 0.4rem; }
-  input[type="text"], input[type="password"] {
+  input[type="text"], input[type="password"], input[type="number"] {
     width: 100%;
     padding: 0.85rem 0.9rem;
     border-radius: 10px;
@@ -59,6 +69,8 @@
   .btn-primary { background: var(--accent); color: white; width: 100%; margin-top: 0.9rem; }
   .btn-primary:disabled { opacity: 0.6; }
   .btn-ghost { background: transparent; color: var(--text-dim); border: 1px solid var(--border); }
+  .btn-accent2 { background: var(--accent-2); color: #08201a; }
+  .btn-small { padding: 0.5rem 0.75rem !important; font-size: 0.82rem !important; margin-top: 0 !important; width: auto !important; }
 
   details { margin-top: 1rem; color: var(--text-dim); font-size: 0.9rem; }
   summary { cursor: pointer; color: var(--accent); }
@@ -124,6 +136,40 @@
   @keyframes spin { to { transform: rotate(360deg); } }
 
   #games-view { display: none; }
+
+  .field-row { display: flex; gap: 0.6rem; align-items: flex-end; }
+  .field-row > div:first-child { flex: 1; }
+
+  .section-title { font-size: 0.8rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; margin: 1.25rem 0 0.6rem; }
+
+  .session-row {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    padding: 0.8rem; margin-bottom: 0.6rem;
+  }
+  .session-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem; }
+  .session-name { font-weight: 600; font-size: 0.95rem; }
+  .session-game { color: var(--text-dim); font-size: 0.78rem; margin-top: 0.2rem; }
+  .session-timer { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--accent-2); font-size: 1.05rem; white-space: nowrap; }
+  .session-actions { display: flex; gap: 0.5rem; margin-top: 0.7rem; flex-wrap: wrap; }
+
+  .status-badge { font-size: 0.72rem; padding: 0.2rem 0.6rem; border-radius: 999px; border: 1px solid var(--border); flex-shrink: 0; white-space: nowrap; }
+  .status-active { background: rgba(74,134,232,0.15); color: var(--accent); border-color: rgba(74,134,232,0.4); }
+  .status-unpaid { background: rgba(242,184,74,0.15); color: var(--warn); border-color: rgba(242,184,74,0.4); }
+  .status-paid { background: rgba(67,214,146,0.15); color: var(--accent-2); border-color: rgba(67,214,146,0.4); }
+
+  .date-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
+  .date-nav button { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); padding: 0.5rem 0.9rem; }
+  .date-label { font-weight: 600; }
+
+  .summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.6rem; margin-bottom: 1.25rem; }
+  .summary-item { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 0.75rem 0.5rem; text-align: center; }
+  .summary-value { font-size: 1.05rem; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .summary-label { font-size: 0.7rem; color: var(--text-dim); margin-top: 0.25rem; }
+
+  .mpesa-form { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+  .mpesa-form input { flex: 1; }
+
+  #billing-tab { display: none; }
 </style>
 </head>
 <body>
@@ -131,47 +177,98 @@
   <h1>My PS Games</h1>
   <p class="subtitle">Your real PlayStation Network game &amp; trophy history</p>
 
-  <!-- CONNECT VIEW -->
-  <div id="connect-view" class="card">
-    <label for="npsso-input">NPSSO token</label>
-    <input id="npsso-input" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Paste your 64-character NPSSO" />
-    <button id="connect-btn" class="btn-primary">Connect</button>
-    <div id="connect-error" class="error"></div>
-
-    <details>
-      <summary>How do I get my NPSSO?</summary>
-      <ol>
-        <li>Open a new tab and sign in at <a href="https://www.playstation.com/" target="_blank" rel="noopener">playstation.com</a>.</li>
-        <li>In that <strong>same tab</strong>, go to
-          <a href="https://ca.account.sony.com/api/v1/ssocookie" target="_blank" rel="noopener">ca.account.sony.com/api/v1/ssocookie</a>.</li>
-        <li>You'll see <code>{"npsso":"..."}</code> &mdash; copy the long value between the quotes.</li>
-        <li>Paste it above and tap Connect.</li>
-      </ol>
-      <p>This token is as sensitive as your password &mdash; only paste it here, never share it.</p>
-    </details>
+  <div class="tabs">
+    <button id="tab-games-btn" class="tab-btn active">🎮 Games</button>
+    <button id="tab-billing-btn" class="tab-btn">💳 Billing</button>
   </div>
 
-  <!-- GAMES VIEW -->
-  <div id="games-view">
-    <div class="toolbar">
-      <input id="search-input" type="text" placeholder="Search your games…" />
-      <button id="refresh-btn" class="btn-ghost">↻</button>
+  <!-- GAMES TAB -->
+  <div id="games-tab">
+    <!-- CONNECT VIEW -->
+    <div id="connect-view" class="card">
+      <label for="npsso-input">NPSSO token</label>
+      <input id="npsso-input" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Paste your 64-character NPSSO" />
+      <button id="connect-btn" class="btn-primary">Connect</button>
+      <div id="connect-error" class="error"></div>
+
+      <details>
+        <summary>How do I get my NPSSO?</summary>
+        <ol>
+          <li>Open a new tab and sign in at <a href="https://www.playstation.com/" target="_blank" rel="noopener">playstation.com</a>.</li>
+          <li>In that <strong>same tab</strong>, go to
+            <a href="https://ca.account.sony.com/api/v1/ssocookie" target="_blank" rel="noopener">ca.account.sony.com/api/v1/ssocookie</a>.</li>
+          <li>You'll see <code>{"npsso":"..."}</code> &mdash; copy the long value between the quotes.</li>
+          <li>Paste it above and tap Connect.</li>
+        </ol>
+        <p>This token is as sensitive as your password &mdash; only paste it here, never share it.</p>
+      </details>
     </div>
-    <div class="meta-row">
-      <span id="count-label"></span>
-      <button id="signout-btn" class="btn-ghost">Sign out</button>
+
+    <!-- GAMES VIEW -->
+    <div id="games-view">
+      <div class="toolbar">
+        <input id="search-input" type="text" placeholder="Search your games…" />
+        <button id="refresh-btn" class="btn-ghost">↻</button>
+      </div>
+      <div class="meta-row">
+        <span id="count-label"></span>
+        <button id="signout-btn" class="btn-ghost">Sign out</button>
+      </div>
+      <div id="game-list" class="game-list"></div>
     </div>
-    <div id="game-list" class="game-list"></div>
+
+    <div id="loading" class="empty" style="display:none;">
+      <div class="spinner"></div>
+      <p>Talking to PlayStation Network…</p>
+    </div>
   </div>
 
-  <div id="loading" class="empty" style="display:none;">
-    <div class="spinner"></div>
-    <p>Talking to PlayStation Network…</p>
+  <!-- BILLING TAB -->
+  <div id="billing-tab">
+    <div class="card">
+      <label for="price-input">Session price (KES)</label>
+      <div class="field-row">
+        <div><input id="price-input" type="number" inputmode="decimal" min="0" /></div>
+        <div><button id="save-price-btn" class="btn-ghost btn-small">Save</button></div>
+      </div>
+    </div>
+
+    <div class="section-title">New session</div>
+    <div class="card">
+      <label for="customer-input">Customer name</label>
+      <input id="customer-input" type="text" placeholder="e.g. Kevin" autocomplete="off" />
+      <label for="game-input" style="margin-top:0.75rem;">Game (optional)</label>
+      <input id="game-input" type="text" list="game-options" placeholder="e.g. EA SPORTS FC 26" autocomplete="off" />
+      <datalist id="game-options"></datalist>
+      <button id="start-session-btn" class="btn-primary">Start session</button>
+    </div>
+
+    <div id="active-section" style="display:none;">
+      <div class="section-title">Playing now</div>
+      <div id="active-list"></div>
+    </div>
+
+    <div class="date-nav">
+      <button id="prev-day-btn">‹</button>
+      <span class="date-label" id="date-label">Today</span>
+      <button id="next-day-btn">›</button>
+    </div>
+
+    <div class="summary-grid">
+      <div class="summary-item"><div class="summary-value" id="sum-sessions">0</div><div class="summary-label">Sessions</div></div>
+      <div class="summary-item"><div class="summary-value" id="sum-collected">KES 0</div><div class="summary-label">Collected</div></div>
+      <div class="summary-item"><div class="summary-value" id="sum-owed">KES 0</div><div class="summary-label">Owed</div></div>
+    </div>
+
+    <div id="ledger-list"></div>
+    <div id="ledger-empty" class="empty" style="display:none;">No sessions this day.</div>
   </div>
 </div>
 
 <script>
   const STORAGE_KEY = "psn_refresh_token";
+  const BILLING_SESSIONS_KEY = "lounge_sessions";
+  const BILLING_SETTINGS_KEY = "lounge_settings";
   const API_URL = "/api/games";
 
   const connectView = document.getElementById("connect-view");
@@ -255,6 +352,12 @@
     return String(v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   }
 
+  function populateGameOptions() {
+    const dl = document.getElementById("game-options");
+    if (!dl) return;
+    dl.innerHTML = allRows.map((r) => `<option value="${escapeHtml(r.game)}"></option>`).join("");
+  }
+
   async function connect(payload) {
     showLoading(true);
     try {
@@ -274,6 +377,7 @@
       localStorage.setItem(STORAGE_KEY, data.refreshToken);
       allRows = data.rows;
       render(allRows);
+      populateGameOptions();
       showGamesView();
     } catch (err) {
       showConnectView("Network error — check your connection and try again.");
@@ -313,6 +417,246 @@
   } else {
     showConnectView();
   }
+
+  /* ===================== BILLING ===================== */
+
+  const tabGamesBtn = document.getElementById("tab-games-btn");
+  const tabBillingBtn = document.getElementById("tab-billing-btn");
+  const gamesTab = document.getElementById("games-tab");
+  const billingTab = document.getElementById("billing-tab");
+
+  const priceInput = document.getElementById("price-input");
+  const savePriceBtn = document.getElementById("save-price-btn");
+  const customerInput = document.getElementById("customer-input");
+  const gameInput = document.getElementById("game-input");
+  const startSessionBtn = document.getElementById("start-session-btn");
+  const activeSection = document.getElementById("active-section");
+  const activeList = document.getElementById("active-list");
+  const prevDayBtn = document.getElementById("prev-day-btn");
+  const nextDayBtn = document.getElementById("next-day-btn");
+  const dateLabel = document.getElementById("date-label");
+  const sumSessions = document.getElementById("sum-sessions");
+  const sumCollected = document.getElementById("sum-collected");
+  const sumOwed = document.getElementById("sum-owed");
+  const ledgerList = document.getElementById("ledger-list");
+  const ledgerEmpty = document.getElementById("ledger-empty");
+
+  function loadSettings() {
+    try {
+      return JSON.parse(localStorage.getItem(BILLING_SETTINGS_KEY)) || { price: 100 };
+    } catch {
+      return { price: 100 };
+    }
+  }
+  function saveSettings(s) {
+    localStorage.setItem(BILLING_SETTINGS_KEY, JSON.stringify(s));
+  }
+  function loadSessions() {
+    try {
+      return JSON.parse(localStorage.getItem(BILLING_SESSIONS_KEY)) || [];
+    } catch {
+      return [];
+    }
+  }
+  function saveSessions(list) {
+    localStorage.setItem(BILLING_SESSIONS_KEY, JSON.stringify(list));
+  }
+
+  function todayStr(d) {
+    d = d || new Date();
+    const y = d.getFullYear(),
+      m = String(d.getMonth() + 1).padStart(2, "0"),
+      day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+
+  let settings = loadSettings();
+  let sessions = loadSessions();
+  let selectedDate = todayStr();
+
+  priceInput.value = settings.price;
+
+  function switchTab(tab) {
+    const isGames = tab === "games";
+    tabGamesBtn.classList.toggle("active", isGames);
+    tabBillingBtn.classList.toggle("active", !isGames);
+    gamesTab.style.display = isGames ? "block" : "none";
+    billingTab.style.display = isGames ? "none" : "block";
+    if (!isGames) renderBilling();
+  }
+  tabGamesBtn.addEventListener("click", () => switchTab("games"));
+  tabBillingBtn.addEventListener("click", () => switchTab("billing"));
+
+  savePriceBtn.addEventListener("click", () => {
+    const v = parseFloat(priceInput.value);
+    if (!isNaN(v) && v >= 0) {
+      settings.price = v;
+      saveSettings(settings);
+    }
+  });
+
+  startSessionBtn.addEventListener("click", () => {
+    const name = customerInput.value.trim();
+    if (!name) {
+      customerInput.focus();
+      return;
+    }
+    const game = gameInput.value.trim();
+    sessions.push({
+      id: "s" + Date.now() + Math.random().toString(36).slice(2, 7),
+      customer: name,
+      game,
+      price: settings.price,
+      startTime: new Date().toISOString(),
+      endTime: null,
+      status: "active",
+      paymentMethod: null,
+      mpesaCode: null,
+      date: todayStr(),
+    });
+    saveSessions(sessions);
+    customerInput.value = "";
+    gameInput.value = "";
+    renderBilling();
+  });
+
+  function endSession(id) {
+    const s = sessions.find((x) => x.id === id);
+    if (!s) return;
+    s.endTime = new Date().toISOString();
+    s.status = "unpaid";
+    saveSessions(sessions);
+    renderBilling();
+  }
+
+  function markPaid(id, method, code) {
+    const s = sessions.find((x) => x.id === id);
+    if (!s) return;
+    s.status = "paid";
+    s.paymentMethod = method;
+    if (code) s.mpesaCode = code;
+    saveSessions(sessions);
+    renderBilling();
+  }
+
+  function showMpesaForm(id) {
+    const el = document.getElementById("mpesa-form-" + id);
+    if (el) el.style.display = "flex";
+  }
+
+  function confirmMpesa(id) {
+    const codeEl = document.getElementById("mpesa-code-" + id);
+    const code = codeEl ? codeEl.value.trim() : "";
+    markPaid(id, "mpesa", code);
+  }
+
+  function formatElapsed(startIso) {
+    const secs = Math.max(0, Math.floor((Date.now() - new Date(startIso).getTime()) / 1000));
+    const h = Math.floor(secs / 3600),
+      m = Math.floor((secs % 3600) / 60),
+      s = secs % 60;
+    return h > 0
+      ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
+      : `${m}:${String(s).padStart(2, "0")}`;
+  }
+
+  function formatDuration(startIso, endIso) {
+    const secs = Math.max(0, Math.floor((new Date(endIso) - new Date(startIso)) / 1000));
+    const h = Math.floor(secs / 3600),
+      m = Math.floor((secs % 3600) / 60),
+      s = secs % 60;
+    return h > 0 ? `${h}h ${m}m` : `${m}m ${s}s`;
+  }
+
+  function fmtMoney(n) {
+    return `KES ${Number(n).toLocaleString()}`;
+  }
+
+  function renderBilling() {
+    const active = sessions.filter((s) => s.status === "active");
+    activeSection.style.display = active.length ? "block" : "none";
+    activeList.innerHTML = active
+      .map(
+        (s) => `
+      <div class="session-row">
+        <div class="session-top">
+          <div>
+            <div class="session-name">${escapeHtml(s.customer)}</div>
+            ${s.game ? `<div class="session-game">${escapeHtml(s.game)}</div>` : ""}
+          </div>
+          <div class="session-timer" data-timer="${s.id}">${formatElapsed(s.startTime)}</div>
+        </div>
+        <div class="session-actions">
+          <button class="btn-small btn-primary" style="width:auto;margin-top:0;" onclick="endSession('${s.id}')">End session</button>
+        </div>
+      </div>`
+      )
+      .join("");
+
+    dateLabel.textContent = selectedDate === todayStr() ? "Today" : selectedDate;
+
+    const dayList = sessions
+      .filter((s) => s.date === selectedDate && s.status !== "active")
+      .sort((a, b) => new Date(b.startTime) - new Date(a.startTime));
+
+    ledgerEmpty.style.display = dayList.length ? "none" : "block";
+    ledgerList.innerHTML = dayList
+      .map((s) => {
+        const paidLabel = s.status === "paid" ? (s.paymentMethod === "mpesa" ? "Paid · M-Pesa" : "Paid · Cash") : "Unpaid";
+        return `
+      <div class="session-row">
+        <div class="session-top">
+          <div>
+            <div class="session-name">${escapeHtml(s.customer)}</div>
+            ${s.game ? `<div class="session-game">${escapeHtml(s.game)}</div>` : ""}
+            <div class="session-game">${formatDuration(s.startTime, s.endTime)} · ${fmtMoney(s.price)}</div>
+          </div>
+          <span class="status-badge status-${s.status}">${paidLabel}</span>
+        </div>
+        ${
+          s.status === "unpaid"
+            ? `
+        <div class="session-actions">
+          <button class="btn-small btn-accent2" onclick="markPaid('${s.id}','cash')">Mark paid (cash)</button>
+          <button class="btn-small btn-ghost" onclick="showMpesaForm('${s.id}')">Mark paid (M-Pesa)</button>
+        </div>
+        <div class="mpesa-form" id="mpesa-form-${s.id}" style="display:none;">
+          <input type="text" placeholder="M-Pesa code (optional)" id="mpesa-code-${s.id}" />
+          <button class="btn-small btn-accent2" onclick="confirmMpesa('${s.id}')">Confirm</button>
+        </div>`
+            : ""
+        }
+      </div>`;
+      })
+      .join("");
+
+    const collected = dayList.filter((s) => s.status === "paid").reduce((a, s) => a + s.price, 0);
+    const owed = dayList.filter((s) => s.status === "unpaid").reduce((a, s) => a + s.price, 0);
+    sumSessions.textContent = dayList.length;
+    sumCollected.textContent = fmtMoney(collected);
+    sumOwed.textContent = fmtMoney(owed);
+  }
+
+  function shiftDate(delta) {
+    const d = new Date(selectedDate + "T00:00:00");
+    d.setDate(d.getDate() + delta);
+    selectedDate = todayStr(d);
+    renderBilling();
+  }
+  prevDayBtn.addEventListener("click", () => shiftDate(-1));
+  nextDayBtn.addEventListener("click", () => shiftDate(1));
+
+  // live timer refresh every second
+  setInterval(() => {
+    if (billingTab.style.display === "none") return;
+    document.querySelectorAll("[data-timer]").forEach((el) => {
+      const id = el.getAttribute("data-timer");
+      const s = sessions.find((x) => x.id === id);
+      if (s && s.status === "active") el.textContent = formatElapsed(s.startTime);
+    });
+  }, 1000);
+
+  renderBilling();
 </script>
 </body>
 </html>
