@@ -1009,9 +1009,23 @@
 
     const nowTitle = data.currentGame ? data.currentGame.title : null;
 
+    // Per-game billing: each game is its own billable charge. The moment
+    // the title changes — they exit to the home screen, or jump straight
+    // into a different game — close out what they just played and drop it
+    // into the ledger as unpaid. Don't wait for the whole console to go
+    // offline; staff should see "awaiting payment" as soon as the game ends.
+    if (s && s.billingMode === "per-game" && s.currentGame && nowTitle !== s.currentGame) {
+      autoEndSession(s.id);
+      s = null;
+    }
+
     if (!s) {
-      // Station just came online with nobody billing yet — start a session
-      // automatically. No staff action needed.
+      // Station just came online with nobody billing yet. Hourly billing
+      // starts the clock immediately, even before a game is chosen.
+      // Per-game billing has nothing to charge for until a game actually
+      // starts, so don't open a session (and show "Playing Now") for an
+      // empty home screen.
+      if (st.billingMode === "per-game" && !nowTitle) return;
       s = {
         id: "s" + Date.now() + Math.random().toString(36).slice(2, 7),
         customer: st.name,
