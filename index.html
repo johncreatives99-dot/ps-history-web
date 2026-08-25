@@ -519,7 +519,7 @@
     } catch {
       /* fall through to defaults */
     }
-    return [1, 2, 3, 4].map((id) => ({ id, name: `Station ${id}`, refreshToken: null, billingMode: "per-game" }));
+    return [1, 2, 3, 4].map((id) => ({ id, name: `Station ${id}`, refreshToken: null, billingMode: "per-game", paused: false }));
   }
   function saveStations() {
     localStorage.setItem(STATIONS_KEY, JSON.stringify(stations));
@@ -588,12 +588,16 @@
     stationsList.innerHTML = stations
       .map((st) => {
         const connected = !!st.refreshToken;
+        const paused = connected && !!st.paused;
+        const statusLabel = paused ? "Paused" : connected ? "Connected" : "Not connected";
+        const statusClass = paused ? "status-unpaid" : connected ? "status-paid" : "status-unpaid";
         return `
       <div class="station-row">
         <div class="station-top">
           <input type="text" class="station-name-input" value="${escapeHtml(st.name)}" onchange="renameStation(${st.id}, this.value)" />
-          <span class="status-badge ${connected ? "status-paid" : "status-unpaid"}">${connected ? "Connected" : "Not connected"}</span>
+          <span class="status-badge ${statusClass}">${statusLabel}</span>
         </div>
+        ${paused ? `<div class="hint">Auto-billing is stopped for this station. It'll pick back up on its own once the console goes offline and back online — or resume it now.</div>` : ""}
         <div class="station-controls">
           <select onchange="setStationMode(${st.id}, this.value)">
             <option value="per-game" ${st.billingMode === "per-game" ? "selected" : ""}>Per game · ${fmtMoney(settings.pricePerGame)}</option>
@@ -601,7 +605,7 @@
           </select>
           ${
             connected
-              ? `<button class="btn-small btn-ghost" onclick="disconnectStation(${st.id})">Disconnect</button>`
+              ? `${paused ? `<button class="btn-small btn-accent2" onclick="resumeStationTracking(${st.id})">Resume tracking</button>` : ""}<button class="btn-small btn-ghost" onclick="disconnectStation(${st.id})">Disconnect</button>`
               : `<button class="btn-small btn-ghost" onclick="toggleStationConnectForm(${st.id})">Connect</button>`
           }
         </div>
@@ -614,6 +618,15 @@
       </div>`;
       })
       .join("");
+  }
+
+  function resumeStationTracking(id) {
+    const st = stations.find((x) => x.id === id);
+    if (!st) return;
+    st.paused = false;
+    st.pausedSeenOffline = false;
+    saveStations();
+    renderStations();
   }
 
   function renameStation(id, name) {
@@ -668,6 +681,8 @@
     const st = stations.find((x) => x.id === id);
     if (!st) return;
     st.refreshToken = null;
+    st.paused = false;
+    st.pausedSeenOffline = false;
     saveStations();
     renderStations();
     ensureStationPolling();
@@ -733,6 +748,24 @@
     s.status = "unpaid";
     saveSessions(sessions);
     renderBilling();
+  }
+
+  // Like endSession, but for a station-tracked session: also stops that
+  // station from auto-opening a new session right behind it, since the
+  // console is still on and the customer is still playing. Auto-billing
+  // for that station stays off until the console cycles offline → online,
+  // or staff explicitly resumes it from the Stations list.
+  function endSessionAndPause(id) {
+    const s = sessions.find((x) => x.id === id);
+    if (!s || !s.stationId) return;
+    endSession(id);
+    const st = stations.find((x) => x.id === s.stationId);
+    if (st) {
+      st.paused = true;
+      st.pausedSeenOffline = false;
+      saveStations();
+      renderStations();
+    }
   }
 
   function autoEndSession(id) {
@@ -867,7 +900,12 @@
           </div>
         </div>
         <div class="session-actions">
-          <button class="btn-small btn-primary" style="width:auto;margin-top:0;" onclick="endSession('${s.id}')">End session</button>
+          <button class="btn-small btn-primary" style="width:auto;margin-top:0;" onclick="endSession('${s.id}')" title="Bill what's owed so far. If they're still playing, tracking keeps going and a fresh session opens right after.">End session</button>
+          ${
+            s.tracking === "auto" && s.stationId
+              ? `<button class="btn-small btn-ghost" style="width:auto;margin-top:0;" onclick="endSessionAndPause('${s.id}')" title="Bill what's owed so far and stop auto-tracking this station until the console goes offline and back online, or you resume it manually.">End &amp; stop tracking</button>`
+              : ""
+          }
         </div>
       </div>`;
       })
@@ -1013,6 +1051,30 @@
 
   function handleStationPresence(st, data) {
     const isOnline = data.onlineStatus === "online";
+
+    // Staff hit "End & pause tracking" — leave this station alone until the
+    // console actually cycles offline then back online (a real end to the
+    // play session), or staff explicitly resumes it. Still watch for that
+    // offline dip so it can come back on its own; don't bill anything meanwhile.
+    if (st.paused) {
+      if (!isOnline) {
+        if (!st.pausedSeenOffline) {
+          st.pausedSeenOffline = true;
+          saveStations();
+        }
+        return;
+      }
+      if (st.pausedSeenOffline) {
+        st.paused = false;
+        st.pausedSeenOffline = false;
+        saveStations();
+        renderStations();
+        // fall through — resumed, handle this poll normally below
+      } else {
+        return; // still online without ever having gone offline — stay paused
+      }
+    }
+
     let s = findActiveSessionForStation(st.id);
     const ps = presenceState[st.id] || { offlineStreak: 0, gameCandidateTitle: undefined, gameCandidateStreak: 0 };
 
