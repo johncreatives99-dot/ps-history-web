@@ -47,7 +47,7 @@
   }
 
   label { display: block; font-size: 0.85rem; color: var(--text-dim); margin-bottom: 0.4rem; }
-  input[type="text"], input[type="password"], input[type="number"] {
+  input[type="text"], input[type="password"], input[type="number"], select {
     width: 100%;
     padding: 0.85rem 0.9rem;
     border-radius: 10px;
@@ -55,8 +55,15 @@
     background: var(--surface-2);
     color: var(--text);
     font-size: 1rem;
+    font-family: inherit;
   }
-  input:focus { outline: 2px solid var(--accent); }
+  input:focus, select:focus { outline: 2px solid var(--accent); }
+
+  .checkbox-row { display: flex; align-items: flex-start; gap: 0.6rem; margin-top: 0.75rem; }
+  .checkbox-row input[type="checkbox"] { width: auto; margin-top: 0.2rem; flex-shrink: 0; }
+  .checkbox-row span { font-size: 0.9rem; }
+  .checkbox-row.disabled span { color: var(--text-dim); }
+  .hint { font-size: 0.78rem; color: var(--text-dim); margin-top: 0.4rem; }
 
   button {
     font-size: 1rem;
@@ -123,6 +130,7 @@
     font-size: 0.72rem; padding: 0.15rem 0.5rem; border-radius: 999px;
     background: var(--surface-2); color: var(--text-dim); border: 1px solid var(--border);
   }
+  .badge-live { background: rgba(242,109,109,0.15); color: var(--danger); border-color: rgba(242,109,109,0.4); }
   .progress-track { height: 5px; background: var(--surface-2); border-radius: 3px; margin-top: 0.5rem; overflow: hidden; }
   .progress-fill { height: 100%; background: var(--accent-2); }
   .last-played { font-size: 0.72rem; color: var(--text-dim); margin-top: 0.35rem; }
@@ -147,9 +155,11 @@
     padding: 0.8rem; margin-bottom: 0.6rem;
   }
   .session-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem; }
-  .session-name { font-weight: 600; font-size: 0.95rem; }
+  .session-name { font-weight: 600; font-size: 0.95rem; display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
   .session-game { color: var(--text-dim); font-size: 0.78rem; margin-top: 0.2rem; }
+  .session-right { text-align: right; flex-shrink: 0; }
   .session-timer { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--accent-2); font-size: 1.05rem; white-space: nowrap; }
+  .session-live-total { font-size: 0.8rem; color: var(--text-dim); margin-top: 0.15rem; white-space: nowrap; }
   .session-actions { display: flex; gap: 0.5rem; margin-top: 0.7rem; flex-wrap: wrap; }
 
   .status-badge { font-size: 0.72rem; padding: 0.2rem 0.6rem; border-radius: 999px; border: 1px solid var(--border); flex-shrink: 0; white-space: nowrap; }
@@ -226,9 +236,11 @@
   <!-- BILLING TAB -->
   <div id="billing-tab">
     <div class="card">
-      <label for="price-input">Session price (KES)</label>
+      <label for="price-per-game-input">Price per game (KES)</label>
+      <input id="price-per-game-input" type="number" inputmode="decimal" min="0" />
+      <label for="price-per-hour-input" style="margin-top:0.75rem;">Price per hour (KES)</label>
       <div class="field-row">
-        <div><input id="price-input" type="number" inputmode="decimal" min="0" /></div>
+        <div><input id="price-per-hour-input" type="number" inputmode="decimal" min="0" /></div>
         <div><button id="save-price-btn" class="btn-ghost btn-small">Save</button></div>
       </div>
     </div>
@@ -237,9 +249,25 @@
     <div class="card">
       <label for="customer-input">Customer name</label>
       <input id="customer-input" type="text" placeholder="e.g. Kevin" autocomplete="off" />
-      <label for="game-input" style="margin-top:0.75rem;">Game (optional)</label>
-      <input id="game-input" type="text" list="game-options" placeholder="e.g. EA SPORTS FC 26" autocomplete="off" />
-      <datalist id="game-options"></datalist>
+
+      <label for="billing-mode-select" style="margin-top:0.75rem;">Billing</label>
+      <select id="billing-mode-select">
+        <option value="per-game">Per game played</option>
+        <option value="hourly">Hourly</option>
+      </select>
+
+      <label class="checkbox-row" id="auto-track-row" for="auto-track-checkbox">
+        <input type="checkbox" id="auto-track-checkbox" />
+        <span>Auto-track via PlayStation — detects game changes &amp; logout automatically, bills without staff clicking "End session"</span>
+      </label>
+      <div class="hint" id="auto-track-hint"></div>
+
+      <div id="manual-game-field">
+        <label for="game-input" style="margin-top:0.75rem;">Game (optional)</label>
+        <input id="game-input" type="text" list="game-options" placeholder="e.g. EA SPORTS FC 26" autocomplete="off" />
+        <datalist id="game-options"></datalist>
+      </div>
+
       <button id="start-session-btn" class="btn-primary">Start session</button>
     </div>
 
@@ -270,6 +298,9 @@
   const BILLING_SESSIONS_KEY = "lounge_sessions";
   const BILLING_SETTINGS_KEY = "lounge_settings";
   const API_URL = "/api/games";
+  const PRESENCE_URL = "/api/presence";
+  const PRESENCE_POLL_MS = 25000;
+  const OFFLINE_STREAK_TO_END = 2; // consecutive offline polls before auto-ending a session
 
   const connectView = document.getElementById("connect-view");
   const gamesView = document.getElementById("games-view");
@@ -302,6 +333,7 @@
     } else {
       connectError.style.display = "none";
     }
+    updateAutoTrackAvailability();
   }
 
   function showGamesView() {
@@ -309,6 +341,7 @@
     connectView.style.display = "none";
     gamesView.style.display = "block";
     loading.style.display = "none";
+    updateAutoTrackAvailability();
   }
 
   function timeAgo(iso) {
@@ -425,9 +458,15 @@
   const gamesTab = document.getElementById("games-tab");
   const billingTab = document.getElementById("billing-tab");
 
-  const priceInput = document.getElementById("price-input");
+  const pricePerGameInput = document.getElementById("price-per-game-input");
+  const pricePerHourInput = document.getElementById("price-per-hour-input");
   const savePriceBtn = document.getElementById("save-price-btn");
   const customerInput = document.getElementById("customer-input");
+  const billingModeSelect = document.getElementById("billing-mode-select");
+  const autoTrackRow = document.getElementById("auto-track-row");
+  const autoTrackCheckbox = document.getElementById("auto-track-checkbox");
+  const autoTrackHint = document.getElementById("auto-track-hint");
+  const manualGameField = document.getElementById("manual-game-field");
   const gameInput = document.getElementById("game-input");
   const startSessionBtn = document.getElementById("start-session-btn");
   const activeSection = document.getElementById("active-section");
@@ -442,11 +481,18 @@
   const ledgerEmpty = document.getElementById("ledger-empty");
 
   function loadSettings() {
+    let s;
     try {
-      return JSON.parse(localStorage.getItem(BILLING_SETTINGS_KEY)) || { price: 100 };
+      s = JSON.parse(localStorage.getItem(BILLING_SETTINGS_KEY)) || {};
     } catch {
-      return { price: 100 };
+      s = {};
     }
+    // Migrate legacy single "price" field, and fall back to the KES 30/game,
+    // KES 130/hour lounge defaults.
+    return {
+      pricePerGame: s.pricePerGame ?? s.price ?? 30,
+      pricePerHour: s.pricePerHour ?? 130,
+    };
   }
   function saveSettings(s) {
     localStorage.setItem(BILLING_SETTINGS_KEY, JSON.stringify(s));
@@ -473,8 +519,11 @@
   let settings = loadSettings();
   let sessions = loadSessions();
   let selectedDate = todayStr();
+  let offlineStreaks = {}; // sessionId -> consecutive offline poll count (in-memory only)
+  let presencePollTimer = null;
 
-  priceInput.value = settings.price;
+  pricePerGameInput.value = settings.pricePerGame;
+  pricePerHourInput.value = settings.pricePerHour;
 
   function switchTab(tab) {
     const isGames = tab === "games";
@@ -488,12 +537,34 @@
   tabBillingBtn.addEventListener("click", () => switchTab("billing"));
 
   savePriceBtn.addEventListener("click", () => {
-    const v = parseFloat(priceInput.value);
-    if (!isNaN(v) && v >= 0) {
-      settings.price = v;
-      saveSettings(settings);
-    }
+    const perGame = parseFloat(pricePerGameInput.value);
+    const perHour = parseFloat(pricePerHourInput.value);
+    if (!isNaN(perGame) && perGame >= 0) settings.pricePerGame = perGame;
+    if (!isNaN(perHour) && perHour >= 0) settings.pricePerHour = perHour;
+    saveSettings(settings);
   });
+
+  function updateAutoTrackAvailability() {
+    const connected = !!localStorage.getItem(STORAGE_KEY);
+    autoTrackCheckbox.disabled = !connected;
+    autoTrackRow.classList.toggle("disabled", !connected);
+    if (!connected) {
+      autoTrackCheckbox.checked = false;
+      autoTrackHint.textContent = "Connect your PlayStation account in the Games tab to enable auto-tracking.";
+    } else {
+      autoTrackHint.textContent = "Only one auto-tracked session can run at a time (one console/account).";
+    }
+    toggleManualGameField();
+  }
+
+  function toggleManualGameField() {
+    manualGameField.style.display = autoTrackCheckbox.checked ? "none" : "block";
+  }
+  autoTrackCheckbox.addEventListener("change", toggleManualGameField);
+
+  function findAutoSession() {
+    return sessions.find((s) => s.status === "active" && s.tracking === "auto");
+  }
 
   startSessionBtn.addEventListener("click", () => {
     const name = customerInput.value.trim();
@@ -501,12 +572,27 @@
       customerInput.focus();
       return;
     }
-    const game = gameInput.value.trim();
+    const billingMode = billingModeSelect.value === "hourly" ? "hourly" : "per-game";
+    const wantsAuto = autoTrackCheckbox.checked && !autoTrackCheckbox.disabled;
+
+    if (wantsAuto && findAutoSession()) {
+      alert("Already auto-tracking a session for " + findAutoSession().customer + ". End it first, or untick auto-track to run this one manually.");
+      return;
+    }
+
+    const tracking = wantsAuto ? "auto" : "manual";
+    const rate = billingMode === "hourly" ? settings.pricePerHour : settings.pricePerGame;
+    const manualGame = gameInput.value.trim();
+
     sessions.push({
       id: "s" + Date.now() + Math.random().toString(36).slice(2, 7),
       customer: name,
-      game,
-      price: settings.price,
+      billingMode,
+      tracking,
+      rate,
+      manualGame,
+      games: [], // {title, start, end, charge} — filled live in auto mode, or one entry on manual end
+      currentGame: null,
       startTime: new Date().toISOString(),
       endTime: null,
       status: "active",
@@ -518,15 +604,49 @@
     customerInput.value = "";
     gameInput.value = "";
     renderBilling();
+    if (tracking === "auto") startPresencePolling();
   });
+
+  // Closes whatever game is currently open on a session (auto mode), pricing
+  // it in per-game mode. No-op if nothing is open.
+  function closeCurrentGame(s, endIso) {
+    const g = s.games[s.games.length - 1];
+    if (g && !g.end) {
+      g.end = endIso;
+      if (s.billingMode === "per-game") g.charge = s.rate;
+    }
+    s.currentGame = null;
+  }
 
   function endSession(id) {
     const s = sessions.find((x) => x.id === id);
-    if (!s) return;
-    s.endTime = new Date().toISOString();
+    if (!s || s.status !== "active") return;
+    const nowIso = new Date().toISOString();
+    closeCurrentGame(s, nowIso);
+    // Manual + per-game sessions never opened a games[] entry via presence
+    // polling — charge the single flat game price now, same as before.
+    if (s.tracking === "manual" && s.billingMode === "per-game" && s.games.length === 0) {
+      s.games.push({ title: s.manualGame || "", start: s.startTime, end: nowIso, charge: s.rate });
+    }
+    s.endTime = nowIso;
     s.status = "unpaid";
+    delete offlineStreaks[s.id];
     saveSessions(sessions);
     renderBilling();
+    stopPresencePollingIfIdle();
+  }
+
+  function autoEndSession(id) {
+    const s = sessions.find((x) => x.id === id);
+    if (!s || s.status !== "active") return;
+    const nowIso = new Date().toISOString();
+    closeCurrentGame(s, nowIso);
+    s.endTime = nowIso;
+    s.status = "unpaid";
+    delete offlineStreaks[s.id];
+    saveSessions(sessions);
+    renderBilling();
+    stopPresencePollingIfIdle();
   }
 
   function markPaid(id, method, code) {
@@ -572,25 +692,50 @@
     return `KES ${Number(n).toLocaleString()}`;
   }
 
+  // Works for both current sessions (new shape) and any legacy entries still
+  // sitting in a browser's localStorage from before billing modes existed.
+  function computeTotal(s) {
+    if (s.billingMode === "hourly") {
+      const end = s.endTime ? new Date(s.endTime) : new Date();
+      const hours = Math.max(0, (end - new Date(s.startTime)) / 3600000);
+      return Math.round(hours * s.rate);
+    }
+    if (s.billingMode === "per-game") {
+      return (s.games || []).reduce((a, g) => a + (g.charge || 0), 0);
+    }
+    return s.price || 0; // legacy sessions
+  }
+
+  function sessionGameLabel(s) {
+    if (s.tracking === "auto") return s.currentGame || "Waiting for game…";
+    return s.manualGame || s.game || "";
+  }
+
   function renderBilling() {
     const active = sessions.filter((s) => s.status === "active");
     activeSection.style.display = active.length ? "block" : "none";
     activeList.innerHTML = active
-      .map(
-        (s) => `
+      .map((s) => {
+        const gameLabel = sessionGameLabel(s);
+        const modeLabel = s.billingMode === "hourly" ? `Hourly · ${fmtMoney(s.rate)}/hr` : `Per game · ${fmtMoney(s.rate)}/game`;
+        return `
       <div class="session-row">
         <div class="session-top">
           <div>
-            <div class="session-name">${escapeHtml(s.customer)}</div>
-            ${s.game ? `<div class="session-game">${escapeHtml(s.game)}</div>` : ""}
+            <div class="session-name">${escapeHtml(s.customer)} ${s.tracking === "auto" ? '<span class="badge badge-live">🔴 auto</span>' : ""}</div>
+            ${gameLabel ? `<div class="session-game">${escapeHtml(gameLabel)}</div>` : ""}
+            <div class="session-game">${modeLabel}</div>
           </div>
-          <div class="session-timer" data-timer="${s.id}">${formatElapsed(s.startTime)}</div>
+          <div class="session-right">
+            <div class="session-timer" data-timer="${s.id}">${formatElapsed(s.startTime)}</div>
+            <div class="session-live-total" data-live-total="${s.id}">${fmtMoney(computeTotal(s))}</div>
+          </div>
         </div>
         <div class="session-actions">
           <button class="btn-small btn-primary" style="width:auto;margin-top:0;" onclick="endSession('${s.id}')">End session</button>
         </div>
-      </div>`
-      )
+      </div>`;
+      })
       .join("");
 
     dateLabel.textContent = selectedDate === todayStr() ? "Today" : selectedDate;
@@ -603,13 +748,20 @@
     ledgerList.innerHTML = dayList
       .map((s) => {
         const paidLabel = s.status === "paid" ? (s.paymentMethod === "mpesa" ? "Paid · M-Pesa" : "Paid · Cash") : "Unpaid";
+        const total = computeTotal(s);
+        const gamesPlayedNote =
+          s.billingMode === "per-game" && s.games && s.games.length > 1
+            ? `<div class="session-game">${s.games.length} games played</div>`
+            : "";
+        const gameLabel = s.games && s.games.length === 1 ? s.games[0].title : s.manualGame || s.game || "";
         return `
       <div class="session-row">
         <div class="session-top">
           <div>
             <div class="session-name">${escapeHtml(s.customer)}</div>
-            ${s.game ? `<div class="session-game">${escapeHtml(s.game)}</div>` : ""}
-            <div class="session-game">${formatDuration(s.startTime, s.endTime)} · ${fmtMoney(s.price)}</div>
+            ${gameLabel ? `<div class="session-game">${escapeHtml(gameLabel)}</div>` : ""}
+            ${gamesPlayedNote}
+            <div class="session-game">${formatDuration(s.startTime, s.endTime)} · ${fmtMoney(total)}</div>
           </div>
           <span class="status-badge status-${s.status}">${paidLabel}</span>
         </div>
@@ -630,8 +782,8 @@
       })
       .join("");
 
-    const collected = dayList.filter((s) => s.status === "paid").reduce((a, s) => a + s.price, 0);
-    const owed = dayList.filter((s) => s.status === "unpaid").reduce((a, s) => a + s.price, 0);
+    const collected = dayList.filter((s) => s.status === "paid").reduce((a, s) => a + computeTotal(s), 0);
+    const owed = dayList.filter((s) => s.status === "unpaid").reduce((a, s) => a + computeTotal(s), 0);
     sumSessions.textContent = dayList.length;
     sumCollected.textContent = fmtMoney(collected);
     sumOwed.textContent = fmtMoney(owed);
@@ -646,7 +798,7 @@
   prevDayBtn.addEventListener("click", () => shiftDate(-1));
   nextDayBtn.addEventListener("click", () => shiftDate(1));
 
-  // live timer refresh every second
+  // live timer + live total refresh every second
   setInterval(() => {
     if (billingTab.style.display === "none") return;
     document.querySelectorAll("[data-timer]").forEach((el) => {
@@ -654,9 +806,82 @@
       const s = sessions.find((x) => x.id === id);
       if (s && s.status === "active") el.textContent = formatElapsed(s.startTime);
     });
+    document.querySelectorAll("[data-live-total]").forEach((el) => {
+      const id = el.getAttribute("data-live-total");
+      const s = sessions.find((x) => x.id === id);
+      if (s && s.status === "active") el.textContent = fmtMoney(computeTotal(s));
+    });
   }, 1000);
 
+  /* -------- live PlayStation presence auto-tracking -------- */
+
+  function startPresencePolling() {
+    if (presencePollTimer) return;
+    presencePollTimer = setInterval(pollPresenceOnce, PRESENCE_POLL_MS);
+    pollPresenceOnce();
+  }
+
+  function stopPresencePollingIfIdle() {
+    if (!findAutoSession() && presencePollTimer) {
+      clearInterval(presencePollTimer);
+      presencePollTimer = null;
+    }
+  }
+
+  async function pollPresenceOnce() {
+    const s = findAutoSession();
+    if (!s) {
+      stopPresencePollingIfIdle();
+      return;
+    }
+    const refreshToken = localStorage.getItem(STORAGE_KEY);
+    if (!refreshToken) return;
+    try {
+      const res = await fetch(PRESENCE_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refreshToken }),
+      });
+      if (!res.ok) return; // transient error — try again next tick
+      const data = await res.json();
+      if (data.refreshToken) localStorage.setItem(STORAGE_KEY, data.refreshToken);
+      handlePresenceUpdate(s, data);
+    } catch (err) {
+      // network hiccup — try again next tick
+    }
+  }
+
+  function handlePresenceUpdate(s, data) {
+    const isOnline = data.onlineStatus === "online";
+
+    if (!isOnline) {
+      offlineStreaks[s.id] = (offlineStreaks[s.id] || 0) + 1;
+      if (offlineStreaks[s.id] >= OFFLINE_STREAK_TO_END) {
+        autoEndSession(s.id);
+      }
+      return;
+    }
+    offlineStreaks[s.id] = 0;
+
+    const nowTitle = data.currentGame ? data.currentGame.title : null;
+    if (nowTitle !== s.currentGame) {
+      const nowIso = new Date().toISOString();
+      if (s.currentGame) closeCurrentGame(s, nowIso);
+      if (nowTitle) {
+        s.games.push({ title: nowTitle, start: nowIso, end: null, charge: 0 });
+        s.currentGame = nowTitle;
+      } else {
+        s.currentGame = null;
+      }
+      saveSessions(sessions);
+      renderBilling();
+    }
+  }
+
+  updateAutoTrackAvailability();
+  toggleManualGameField();
   renderBilling();
+  if (findAutoSession()) startPresencePolling();
 </script>
 </body>
 </html>
