@@ -779,6 +779,47 @@
     renderBilling();
   }
 
+  // Staff hits this at the handoff moment — one group finishes, the next
+  // picks new teams and carries on WITHOUT ever backing out to the PS5 home
+  // screen. PSN can't see that handoff (same title stays running the whole
+  // time), so there's no automatic signal to close the first group's charge
+  // and open the next one — this one tap is the only way to mark it. Bills
+  // the group that just finished right now (into the unpaid ledger) and
+  // starts a fresh per-game charge immediately, still under auto-tracking.
+  function nextRound(id) {
+    const s = sessions.find((x) => x.id === id);
+    if (!s || s.status !== "active" || !s.stationId || s.billingMode !== "per-game") return;
+    const st = stations.find((x) => x.id === s.stationId);
+    const title = s.currentGame;
+    autoEndSession(id);
+    if (st && title) {
+      const nowIso = new Date().toISOString();
+      sessions.push({
+        id: "s" + Date.now() + Math.random().toString(36).slice(2, 7),
+        customer: st.name,
+        billingMode: st.billingMode,
+        tracking: "auto",
+        stationId: st.id,
+        rate: settings.pricePerGame,
+        manualGame: "",
+        games: [{ title, start: nowIso, end: null, charge: 0 }],
+        currentGame: title,
+        startTime: nowIso,
+        endTime: null,
+        status: "active",
+        paymentMethod: null,
+        mpesaCode: null,
+        date: todayStr(),
+      });
+      // Clear any pending "is this game ending?" progress for the station —
+      // we just manually established a fresh baseline title for it.
+      delete presenceState[st.id];
+      savePresenceState();
+      saveSessions(sessions);
+      renderBilling();
+    }
+  }
+
   function markPaid(id, method, code) {
     const s = sessions.find((x) => x.id === id);
     if (!s) return;
@@ -901,6 +942,11 @@
         </div>
         <div class="session-actions">
           <button class="btn-small btn-primary" style="width:auto;margin-top:0;" onclick="endSession('${s.id}')" title="Bill what's owed so far. If they're still playing, tracking keeps going and a fresh session opens right after.">End session</button>
+          ${
+            s.tracking === "auto" && s.stationId && s.billingMode === "per-game"
+              ? `<button class="btn-small btn-accent2" style="width:auto;margin-top:0;" onclick="nextRound('${s.id}')" title="Use this when a new group takes over without exiting the game — bills the group that just finished and starts a fresh ${fmtMoney(s.rate)} charge right away.">Next round (new charge)</button>`
+              : ""
+          }
           ${
             s.tracking === "auto" && s.stationId
               ? `<button class="btn-small btn-ghost" style="width:auto;margin-top:0;" onclick="endSessionAndPause('${s.id}')" title="Bill what's owed so far and stop auto-tracking this station until the console goes offline and back online, or you resume it manually.">End &amp; stop tracking</button>`
