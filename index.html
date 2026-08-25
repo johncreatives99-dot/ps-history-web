@@ -59,10 +59,6 @@
   }
   input:focus, select:focus { outline: 2px solid var(--accent); }
 
-  .checkbox-row { display: flex; align-items: flex-start; gap: 0.6rem; margin-top: 0.75rem; }
-  .checkbox-row input[type="checkbox"] { width: auto; margin-top: 0.2rem; flex-shrink: 0; }
-  .checkbox-row span { font-size: 0.9rem; }
-  .checkbox-row.disabled span { color: var(--text-dim); }
   .hint { font-size: 0.78rem; color: var(--text-dim); margin-top: 0.4rem; }
 
   button {
@@ -155,12 +151,13 @@
     padding: 0.8rem; margin-bottom: 0.6rem;
   }
   .session-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem; }
-  .session-name { font-weight: 600; font-size: 0.95rem; display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+  .session-name { font-weight: 600; font-size: 0.95rem; display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; cursor: text; }
   .session-game { color: var(--text-dim); font-size: 0.78rem; margin-top: 0.2rem; }
   .session-right { text-align: right; flex-shrink: 0; }
   .session-timer { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--accent-2); font-size: 1.05rem; white-space: nowrap; }
   .session-live-total { font-size: 0.8rem; color: var(--text-dim); margin-top: 0.15rem; white-space: nowrap; }
   .session-actions { display: flex; gap: 0.5rem; margin-top: 0.7rem; flex-wrap: wrap; }
+  .rename-input { width: 140px; padding: 0.3rem 0.5rem; border-radius: 6px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); font-size: 0.95rem; font-weight: 600; }
 
   .status-badge { font-size: 0.72rem; padding: 0.2rem 0.6rem; border-radius: 999px; border: 1px solid var(--border); flex-shrink: 0; white-space: nowrap; }
   .status-active { background: rgba(74,134,232,0.15); color: var(--accent); border-color: rgba(74,134,232,0.4); }
@@ -178,6 +175,16 @@
 
   .mpesa-form { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
   .mpesa-form input { flex: 1; }
+
+  .station-row {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    padding: 0.8rem; margin-bottom: 0.6rem;
+  }
+  .station-top { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; margin-bottom: 0.6rem; }
+  .station-name-input { font-weight: 600; font-size: 0.95rem; padding: 0.45rem 0.6rem !important; width: auto !important; flex: 1; }
+  .station-controls { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+  .station-controls select { width: auto; flex: 1; min-width: 150px; }
+  .station-connect-form { margin-top: 0.6rem; display: flex; flex-direction: column; gap: 0.5rem; }
 
   #billing-tab { display: none; }
 </style>
@@ -245,29 +252,24 @@
       </div>
     </div>
 
-    <div class="section-title">New session</div>
+    <div class="section-title">Stations</div>
+    <p class="hint" style="margin-top:-0.4rem;margin-bottom:0.75rem;">
+      Connect each console's own PlayStation account once below. From then on every station bills itself automatically — no staff action needed: a session starts the moment someone signs in and plays, bills each game (or the hours played), and closes out the moment they log off.
+    </p>
+    <div id="stations-list"></div>
+
+    <div class="section-title">New session (manual / walk-in)</div>
     <div class="card">
       <label for="customer-input">Customer name</label>
       <input id="customer-input" type="text" placeholder="e.g. Kevin" autocomplete="off" />
-
       <label for="billing-mode-select" style="margin-top:0.75rem;">Billing</label>
       <select id="billing-mode-select">
         <option value="per-game">Per game played</option>
         <option value="hourly">Hourly</option>
       </select>
-
-      <label class="checkbox-row" id="auto-track-row" for="auto-track-checkbox">
-        <input type="checkbox" id="auto-track-checkbox" />
-        <span>Auto-track via PlayStation — detects game changes &amp; logout automatically, bills without staff clicking "End session"</span>
-      </label>
-      <div class="hint" id="auto-track-hint"></div>
-
-      <div id="manual-game-field">
-        <label for="game-input" style="margin-top:0.75rem;">Game (optional)</label>
-        <input id="game-input" type="text" list="game-options" placeholder="e.g. EA SPORTS FC 26" autocomplete="off" />
-        <datalist id="game-options"></datalist>
-      </div>
-
+      <label for="game-input" style="margin-top:0.75rem;">Game (optional)</label>
+      <input id="game-input" type="text" list="game-options" placeholder="e.g. EA SPORTS FC 26" autocomplete="off" />
+      <datalist id="game-options"></datalist>
       <button id="start-session-btn" class="btn-primary">Start session</button>
     </div>
 
@@ -297,10 +299,16 @@
   const STORAGE_KEY = "psn_refresh_token";
   const BILLING_SESSIONS_KEY = "lounge_sessions";
   const BILLING_SETTINGS_KEY = "lounge_settings";
+  const STATIONS_KEY = "lounge_stations";
   const API_URL = "/api/games";
+  const CONNECT_URL = "/api/connect";
   const PRESENCE_URL = "/api/presence";
+  const STK_PUSH_URL = "/api/mpesa-stkpush";
+  const STK_STATUS_URL = "/api/mpesa-status";
   const PRESENCE_POLL_MS = 25000;
   const OFFLINE_STREAK_TO_END = 2; // consecutive offline polls before auto-ending a session
+  const STK_POLL_MS = 5000;
+  const STK_POLL_MAX_ATTEMPTS = 24; // ~2 minutes
 
   const connectView = document.getElementById("connect-view");
   const gamesView = document.getElementById("games-view");
@@ -333,7 +341,6 @@
     } else {
       connectError.style.display = "none";
     }
-    updateAutoTrackAvailability();
   }
 
   function showGamesView() {
@@ -341,7 +348,6 @@
     connectView.style.display = "none";
     gamesView.style.display = "block";
     loading.style.display = "none";
-    updateAutoTrackAvailability();
   }
 
   function timeAgo(iso) {
@@ -461,12 +467,9 @@
   const pricePerGameInput = document.getElementById("price-per-game-input");
   const pricePerHourInput = document.getElementById("price-per-hour-input");
   const savePriceBtn = document.getElementById("save-price-btn");
+  const stationsList = document.getElementById("stations-list");
   const customerInput = document.getElementById("customer-input");
   const billingModeSelect = document.getElementById("billing-mode-select");
-  const autoTrackRow = document.getElementById("auto-track-row");
-  const autoTrackCheckbox = document.getElementById("auto-track-checkbox");
-  const autoTrackHint = document.getElementById("auto-track-hint");
-  const manualGameField = document.getElementById("manual-game-field");
   const gameInput = document.getElementById("game-input");
   const startSessionBtn = document.getElementById("start-session-btn");
   const activeSection = document.getElementById("active-section");
@@ -507,6 +510,18 @@
   function saveSessions(list) {
     localStorage.setItem(BILLING_SESSIONS_KEY, JSON.stringify(list));
   }
+  function loadStations() {
+    try {
+      const s = JSON.parse(localStorage.getItem(STATIONS_KEY));
+      if (Array.isArray(s) && s.length) return s;
+    } catch {
+      /* fall through to defaults */
+    }
+    return [1, 2, 3, 4].map((id) => ({ id, name: `Station ${id}`, refreshToken: null, billingMode: "per-game" }));
+  }
+  function saveStations() {
+    localStorage.setItem(STATIONS_KEY, JSON.stringify(stations));
+  }
 
   function todayStr(d) {
     d = d || new Date();
@@ -518,9 +533,11 @@
 
   let settings = loadSettings();
   let sessions = loadSessions();
+  let stations = loadStations();
   let selectedDate = todayStr();
-  let offlineStreaks = {}; // sessionId -> consecutive offline poll count (in-memory only)
-  let presencePollTimer = null;
+  let stationOfflineStreaks = {}; // stationId -> consecutive offline poll count (in-memory only)
+  let stationPollTimer = null;
+  let stkPolls = {}; // sessionId -> {timer, attempts}
 
   pricePerGameInput.value = settings.pricePerGame;
   pricePerHourInput.value = settings.pricePerHour;
@@ -542,29 +559,101 @@
     if (!isNaN(perGame) && perGame >= 0) settings.pricePerGame = perGame;
     if (!isNaN(perHour) && perHour >= 0) settings.pricePerHour = perHour;
     saveSettings(settings);
+    renderStations(); // price labels shown next to each station's billing mode
   });
 
-  function updateAutoTrackAvailability() {
-    const connected = !!localStorage.getItem(STORAGE_KEY);
-    autoTrackCheckbox.disabled = !connected;
-    autoTrackRow.classList.toggle("disabled", !connected);
-    if (!connected) {
-      autoTrackCheckbox.checked = false;
-      autoTrackHint.textContent = "Connect your PlayStation account in the Games tab to enable auto-tracking.";
-    } else {
-      autoTrackHint.textContent = "Only one auto-tracked session can run at a time (one console/account).";
+  /* -------- stations: connect / rename / billing mode -------- */
+
+  function renderStations() {
+    stationsList.innerHTML = stations
+      .map((st) => {
+        const connected = !!st.refreshToken;
+        return `
+      <div class="station-row">
+        <div class="station-top">
+          <input type="text" class="station-name-input" value="${escapeHtml(st.name)}" onchange="renameStation(${st.id}, this.value)" />
+          <span class="status-badge ${connected ? "status-paid" : "status-unpaid"}">${connected ? "Connected" : "Not connected"}</span>
+        </div>
+        <div class="station-controls">
+          <select onchange="setStationMode(${st.id}, this.value)">
+            <option value="per-game" ${st.billingMode === "per-game" ? "selected" : ""}>Per game · ${fmtMoney(settings.pricePerGame)}</option>
+            <option value="hourly" ${st.billingMode === "hourly" ? "selected" : ""}>Hourly · ${fmtMoney(settings.pricePerHour)}</option>
+          </select>
+          ${
+            connected
+              ? `<button class="btn-small btn-ghost" onclick="disconnectStation(${st.id})">Disconnect</button>`
+              : `<button class="btn-small btn-ghost" onclick="toggleStationConnectForm(${st.id})">Connect</button>`
+          }
+        </div>
+        <div class="station-connect-form" id="station-connect-form-${st.id}" style="display:none;">
+          <input type="password" autocomplete="off" spellcheck="false" placeholder="Paste this station's NPSSO" id="station-npsso-${st.id}" />
+          <button class="btn-small btn-accent2" onclick="saveStationNpsso(${st.id})">Save</button>
+          <div class="hint">Sign in at playstation.com with THIS station's own PSN account, then open ca.account.sony.com/api/v1/ssocookie in the same tab to copy its NPSSO.</div>
+          <div class="error" id="station-error-${st.id}"></div>
+        </div>
+      </div>`;
+      })
+      .join("");
+  }
+
+  function renameStation(id, name) {
+    const st = stations.find((x) => x.id === id);
+    if (!st) return;
+    st.name = name.trim() || `Station ${id}`;
+    saveStations();
+  }
+
+  function setStationMode(id, mode) {
+    const st = stations.find((x) => x.id === id);
+    if (!st) return;
+    st.billingMode = mode === "hourly" ? "hourly" : "per-game";
+    saveStations();
+  }
+
+  function toggleStationConnectForm(id) {
+    const el = document.getElementById("station-connect-form-" + id);
+    if (el) el.style.display = el.style.display === "none" ? "block" : "none";
+  }
+
+  async function saveStationNpsso(id) {
+    const input = document.getElementById("station-npsso-" + id);
+    const errEl = document.getElementById("station-error-" + id);
+    const npsso = input ? input.value.trim() : "";
+    if (!npsso) return;
+    errEl.style.display = "none";
+    try {
+      const res = await fetch(CONNECT_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ npsso }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        errEl.textContent = data.error || "Couldn't connect.";
+        errEl.style.display = "block";
+        return;
+      }
+      const st = stations.find((x) => x.id === id);
+      st.refreshToken = data.refreshToken;
+      saveStations();
+      renderStations();
+      ensureStationPolling();
+    } catch {
+      errEl.textContent = "Network error — try again.";
+      errEl.style.display = "block";
     }
-    toggleManualGameField();
   }
 
-  function toggleManualGameField() {
-    manualGameField.style.display = autoTrackCheckbox.checked ? "none" : "block";
+  function disconnectStation(id) {
+    const st = stations.find((x) => x.id === id);
+    if (!st) return;
+    st.refreshToken = null;
+    saveStations();
+    renderStations();
+    ensureStationPolling();
   }
-  autoTrackCheckbox.addEventListener("change", toggleManualGameField);
 
-  function findAutoSession() {
-    return sessions.find((s) => s.status === "active" && s.tracking === "auto");
-  }
+  /* -------- manual / walk-in sessions -------- */
 
   startSessionBtn.addEventListener("click", () => {
     const name = customerInput.value.trim();
@@ -573,14 +662,6 @@
       return;
     }
     const billingMode = billingModeSelect.value === "hourly" ? "hourly" : "per-game";
-    const wantsAuto = autoTrackCheckbox.checked && !autoTrackCheckbox.disabled;
-
-    if (wantsAuto && findAutoSession()) {
-      alert("Already auto-tracking a session for " + findAutoSession().customer + ". End it first, or untick auto-track to run this one manually.");
-      return;
-    }
-
-    const tracking = wantsAuto ? "auto" : "manual";
     const rate = billingMode === "hourly" ? settings.pricePerHour : settings.pricePerGame;
     const manualGame = gameInput.value.trim();
 
@@ -588,10 +669,11 @@
       id: "s" + Date.now() + Math.random().toString(36).slice(2, 7),
       customer: name,
       billingMode,
-      tracking,
+      tracking: "manual",
+      stationId: null,
       rate,
       manualGame,
-      games: [], // {title, start, end, charge} — filled live in auto mode, or one entry on manual end
+      games: [], // {title, start, end, charge}
       currentGame: null,
       startTime: new Date().toISOString(),
       endTime: null,
@@ -604,7 +686,6 @@
     customerInput.value = "";
     gameInput.value = "";
     renderBilling();
-    if (tracking === "auto") startPresencePolling();
   });
 
   // Closes whatever game is currently open on a session (auto mode), pricing
@@ -630,10 +711,8 @@
     }
     s.endTime = nowIso;
     s.status = "unpaid";
-    delete offlineStreaks[s.id];
     saveSessions(sessions);
     renderBilling();
-    stopPresencePollingIfIdle();
   }
 
   function autoEndSession(id) {
@@ -643,10 +722,8 @@
     closeCurrentGame(s, nowIso);
     s.endTime = nowIso;
     s.status = "unpaid";
-    delete offlineStreaks[s.id];
     saveSessions(sessions);
     renderBilling();
-    stopPresencePollingIfIdle();
   }
 
   function markPaid(id, method, code) {
@@ -657,6 +734,10 @@
     if (code) s.mpesaCode = code;
     saveSessions(sessions);
     renderBilling();
+    if (stkPolls[id]) {
+      clearInterval(stkPolls[id].timer);
+      delete stkPolls[id];
+    }
   }
 
   function showMpesaForm(id) {
@@ -668,6 +749,33 @@
     const codeEl = document.getElementById("mpesa-code-" + id);
     const code = codeEl ? codeEl.value.trim() : "";
     markPaid(id, "mpesa", code);
+  }
+
+  // Inline rename — double-click a customer name (most useful for
+  // auto-created "Station N" sessions) to give it the real customer's name.
+  function startRename(id, el) {
+    const s = sessions.find((x) => x.id === id);
+    if (!s) return;
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "rename-input";
+    input.value = s.customer;
+    input.onblur = () => finishRename(id, input.value);
+    input.onkeydown = (e) => {
+      if (e.key === "Enter") input.blur();
+    };
+    el.replaceWith(input);
+    input.focus();
+    input.select();
+  }
+
+  function finishRename(id, newName) {
+    const s = sessions.find((x) => x.id === id);
+    if (!s) return;
+    const trimmed = (newName || "").trim();
+    if (trimmed) s.customer = trimmed;
+    saveSessions(sessions);
+    renderBilling();
   }
 
   function formatElapsed(startIso) {
@@ -711,6 +819,12 @@
     return s.manualGame || s.game || "";
   }
 
+  function stationLabelFor(s) {
+    if (!s.stationId) return "";
+    const st = stations.find((x) => x.id === s.stationId);
+    return st ? st.name : `Station ${s.stationId}`;
+  }
+
   function renderBilling() {
     const active = sessions.filter((s) => s.status === "active");
     activeSection.style.display = active.length ? "block" : "none";
@@ -718,11 +832,12 @@
       .map((s) => {
         const gameLabel = sessionGameLabel(s);
         const modeLabel = s.billingMode === "hourly" ? `Hourly · ${fmtMoney(s.rate)}/hr` : `Per game · ${fmtMoney(s.rate)}/game`;
+        const stLabel = stationLabelFor(s);
         return `
       <div class="session-row">
         <div class="session-top">
           <div>
-            <div class="session-name">${escapeHtml(s.customer)} ${s.tracking === "auto" ? '<span class="badge badge-live">🔴 auto</span>' : ""}</div>
+            <div class="session-name" ondblclick="startRename('${s.id}', this)">${escapeHtml(s.customer)} ${s.tracking === "auto" ? '<span class="badge badge-live">🔴 auto</span>' : ""}${stLabel ? `<span class="badge">${escapeHtml(stLabel)}</span>` : ""}</div>
             ${gameLabel ? `<div class="session-game">${escapeHtml(gameLabel)}</div>` : ""}
             <div class="session-game">${modeLabel}</div>
           </div>
@@ -749,6 +864,7 @@
       .map((s) => {
         const paidLabel = s.status === "paid" ? (s.paymentMethod === "mpesa" ? "Paid · M-Pesa" : "Paid · Cash") : "Unpaid";
         const total = computeTotal(s);
+        const stLabel = stationLabelFor(s);
         const gamesPlayedNote =
           s.billingMode === "per-game" && s.games && s.games.length > 1
             ? `<div class="session-game">${s.games.length} games played</div>`
@@ -758,7 +874,7 @@
       <div class="session-row">
         <div class="session-top">
           <div>
-            <div class="session-name">${escapeHtml(s.customer)}</div>
+            <div class="session-name" ondblclick="startRename('${s.id}', this)">${escapeHtml(s.customer)}${stLabel ? `<span class="badge">${escapeHtml(stLabel)}</span>` : ""}</div>
             ${gameLabel ? `<div class="session-game">${escapeHtml(gameLabel)}</div>` : ""}
             ${gamesPlayedNote}
             <div class="session-game">${formatDuration(s.startTime, s.endTime)} · ${fmtMoney(total)}</div>
@@ -770,12 +886,18 @@
             ? `
         <div class="session-actions">
           <button class="btn-small btn-accent2" onclick="markPaid('${s.id}','cash')">Mark paid (cash)</button>
-          <button class="btn-small btn-ghost" onclick="showMpesaForm('${s.id}')">Mark paid (M-Pesa)</button>
+          <button class="btn-small btn-ghost" onclick="showStkForm('${s.id}')">Request M-Pesa payment</button>
+          <button class="btn-small btn-ghost" onclick="showMpesaForm('${s.id}')">Enter M-Pesa code manually</button>
+        </div>
+        <div class="mpesa-form" id="stk-form-${s.id}" style="display:none;">
+          <input type="text" placeholder="07XXXXXXXX" id="stk-phone-${s.id}" />
+          <button class="btn-small btn-accent2" onclick="sendStkPush('${s.id}')">Send request for ${fmtMoney(total)}</button>
         </div>
         <div class="mpesa-form" id="mpesa-form-${s.id}" style="display:none;">
           <input type="text" placeholder="M-Pesa code (optional)" id="mpesa-code-${s.id}" />
           <button class="btn-small btn-accent2" onclick="confirmMpesa('${s.id}')">Confirm</button>
-        </div>`
+        </div>
+        <div class="hint" id="stk-status-${s.id}"></div>`
             : ""
         }
       </div>`;
@@ -813,57 +935,103 @@
     });
   }, 1000);
 
-  /* -------- live PlayStation presence auto-tracking -------- */
+  /* -------- live PlayStation presence auto-tracking, per station -------- */
 
-  function startPresencePolling() {
-    if (presencePollTimer) return;
-    presencePollTimer = setInterval(pollPresenceOnce, PRESENCE_POLL_MS);
-    pollPresenceOnce();
+  function connectedStations() {
+    return stations.filter((st) => st.refreshToken);
   }
 
-  function stopPresencePollingIfIdle() {
-    if (!findAutoSession() && presencePollTimer) {
-      clearInterval(presencePollTimer);
-      presencePollTimer = null;
-    }
+  function findActiveSessionForStation(stationId) {
+    return sessions.find((s) => s.status === "active" && s.stationId === stationId);
   }
 
-  async function pollPresenceOnce() {
-    const s = findAutoSession();
-    if (!s) {
-      stopPresencePollingIfIdle();
+  function ensureStationPolling() {
+    if (connectedStations().length === 0) {
+      if (stationPollTimer) {
+        clearInterval(stationPollTimer);
+        stationPollTimer = null;
+      }
       return;
     }
-    const refreshToken = localStorage.getItem(STORAGE_KEY);
-    if (!refreshToken) return;
+    if (!stationPollTimer) {
+      stationPollTimer = setInterval(pollAllStations, PRESENCE_POLL_MS);
+      pollAllStations();
+    }
+  }
+
+  async function pollAllStations() {
+    await Promise.all(connectedStations().map((st) => pollStationOnce(st)));
+  }
+
+  async function pollStationOnce(st) {
+    if (!st.refreshToken) return;
     try {
       const res = await fetch(PRESENCE_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ refreshToken }),
+        body: JSON.stringify({ refreshToken: st.refreshToken }),
       });
-      if (!res.ok) return; // transient error — try again next tick
+      if (!res.ok) {
+        if (res.status === 401) {
+          // This station's session expired — needs reconnecting.
+          st.refreshToken = null;
+          saveStations();
+          renderStations();
+        }
+        return; // transient error otherwise — try again next tick
+      }
       const data = await res.json();
-      if (data.refreshToken) localStorage.setItem(STORAGE_KEY, data.refreshToken);
-      handlePresenceUpdate(s, data);
+      if (data.refreshToken && data.refreshToken !== st.refreshToken) {
+        st.refreshToken = data.refreshToken;
+        saveStations();
+      }
+      handleStationPresence(st, data);
     } catch (err) {
       // network hiccup — try again next tick
     }
   }
 
-  function handlePresenceUpdate(s, data) {
+  function handleStationPresence(st, data) {
     const isOnline = data.onlineStatus === "online";
+    let s = findActiveSessionForStation(st.id);
 
     if (!isOnline) {
-      offlineStreaks[s.id] = (offlineStreaks[s.id] || 0) + 1;
-      if (offlineStreaks[s.id] >= OFFLINE_STREAK_TO_END) {
-        autoEndSession(s.id);
+      if (s) {
+        stationOfflineStreaks[st.id] = (stationOfflineStreaks[st.id] || 0) + 1;
+        if (stationOfflineStreaks[st.id] >= OFFLINE_STREAK_TO_END) {
+          autoEndSession(s.id);
+          delete stationOfflineStreaks[st.id];
+        }
       }
       return;
     }
-    offlineStreaks[s.id] = 0;
+    stationOfflineStreaks[st.id] = 0;
 
     const nowTitle = data.currentGame ? data.currentGame.title : null;
+
+    if (!s) {
+      // Station just came online with nobody billing yet — start a session
+      // automatically. No staff action needed.
+      s = {
+        id: "s" + Date.now() + Math.random().toString(36).slice(2, 7),
+        customer: st.name,
+        billingMode: st.billingMode,
+        tracking: "auto",
+        stationId: st.id,
+        rate: st.billingMode === "hourly" ? settings.pricePerHour : settings.pricePerGame,
+        manualGame: "",
+        games: [],
+        currentGame: null,
+        startTime: new Date().toISOString(),
+        endTime: null,
+        status: "active",
+        paymentMethod: null,
+        mpesaCode: null,
+        date: todayStr(),
+      };
+      sessions.push(s);
+    }
+
     if (nowTitle !== s.currentGame) {
       const nowIso = new Date().toISOString();
       if (s.currentGame) closeCurrentGame(s, nowIso);
@@ -873,15 +1041,89 @@
       } else {
         s.currentGame = null;
       }
-      saveSessions(sessions);
-      renderBilling();
+    }
+    saveSessions(sessions);
+    renderBilling();
+  }
+
+  /* -------- M-Pesa STK push (automatic payment confirmation) -------- */
+
+  function showStkForm(id) {
+    const el = document.getElementById("stk-form-" + id);
+    if (el) el.style.display = "flex";
+  }
+
+  async function sendStkPush(id) {
+    const s = sessions.find((x) => x.id === id);
+    if (!s) return;
+    const phoneEl = document.getElementById("stk-phone-" + id);
+    const statusEl = document.getElementById("stk-status-" + id);
+    const phone = phoneEl ? phoneEl.value.trim() : "";
+    if (!phone) {
+      phoneEl && phoneEl.focus();
+      return;
+    }
+    if (statusEl) statusEl.textContent = "Sending request to " + phone + "…";
+    try {
+      const res = await fetch(STK_PUSH_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId: id, phone, amount: computeTotal(s) }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        if (statusEl) statusEl.textContent = data.error || "Couldn't send request.";
+        return;
+      }
+      if (statusEl) statusEl.textContent = "Waiting for customer to enter their M-Pesa PIN…";
+      pollStkStatus(id, data.checkoutRequestId);
+    } catch {
+      if (statusEl) statusEl.textContent = "Network error — try again.";
     }
   }
 
-  updateAutoTrackAvailability();
-  toggleManualGameField();
+  function pollStkStatus(sessionId, checkoutRequestId) {
+    if (stkPolls[sessionId]) clearInterval(stkPolls[sessionId].timer);
+    const state = { attempts: 0, timer: null };
+    state.timer = setInterval(async () => {
+      state.attempts++;
+      const statusEl = document.getElementById("stk-status-" + sessionId);
+      try {
+        const res = await fetch(STK_STATUS_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ checkoutRequestId }),
+        });
+        const data = await res.json();
+
+        if (data.status === "success") {
+          clearInterval(state.timer);
+          delete stkPolls[sessionId];
+          markPaid(sessionId, "mpesa", data.mpesaReceiptNumber || "");
+          return;
+        }
+        if (data.status === "failed") {
+          clearInterval(state.timer);
+          delete stkPolls[sessionId];
+          if (statusEl) statusEl.textContent = "Payment not completed (" + (data.resultDesc || "cancelled") + "). Try again or mark paid manually.";
+          return;
+        }
+        if (statusEl) statusEl.textContent = "Waiting for customer to enter their M-Pesa PIN… (" + state.attempts * (STK_POLL_MS / 1000) + "s)";
+        if (state.attempts >= STK_POLL_MAX_ATTEMPTS) {
+          clearInterval(state.timer);
+          delete stkPolls[sessionId];
+          if (statusEl) statusEl.textContent = "No response after 2 minutes. Ask the customer to check their phone, or mark paid manually.";
+        }
+      } catch {
+        /* try again next tick */
+      }
+    }, STK_POLL_MS);
+    stkPolls[sessionId] = state;
+  }
+
+  renderStations();
   renderBilling();
-  if (findAutoSession()) startPresencePolling();
+  ensureStationPolling();
 </script>
 </body>
 </html>

@@ -8,6 +8,7 @@
     "node": ">=20"
   },
   "dependencies": {
-    "psn-api": "^2.18.1"
+    "psn-api": "^2.18.1",
+    "@vercel/kv": "^3.0.0"
   }
 }
