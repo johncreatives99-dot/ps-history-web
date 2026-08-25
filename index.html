@@ -306,7 +306,9 @@
   const STK_PUSH_URL = "/api/mpesa-stkpush";
   const STK_STATUS_URL = "/api/mpesa-status";
   const PRESENCE_POLL_MS = 25000;
+  const PRESENCE_STATE_KEY = "lounge_presence_state";
   const OFFLINE_STREAK_TO_END = 2; // consecutive offline polls before auto-ending a session
+  const GAME_END_STREAK_TO_CONFIRM = 3; // consecutive matching "different title" polls (~75s) before treating a per-game session as finished
   const STK_POLL_MS = 5000;
   const STK_POLL_MAX_ATTEMPTS = 24; // ~2 minutes
 
@@ -523,6 +525,24 @@
     localStorage.setItem(STATIONS_KEY, JSON.stringify(stations));
   }
 
+  // Tracks, per station, how many consecutive presence polls have shown the
+  // console offline / a game apparently finished, before we act on it. PSN's
+  // presence API blips briefly (a loading screen, a menu between matches) —
+  // acting on the very first different reading would split one real play
+  // session into several false ones. Persisted to localStorage (not just an
+  // in-memory variable) so a page reload doesn't throw away progress toward
+  // that confirmation and make the flakiness worse.
+  function loadPresenceState() {
+    try {
+      return JSON.parse(localStorage.getItem(PRESENCE_STATE_KEY)) || {};
+    } catch {
+      return {};
+    }
+  }
+  function savePresenceState() {
+    localStorage.setItem(PRESENCE_STATE_KEY, JSON.stringify(presenceState));
+  }
+
   function todayStr(d) {
     d = d || new Date();
     const y = d.getFullYear(),
@@ -535,7 +555,7 @@
   let sessions = loadSessions();
   let stations = loadStations();
   let selectedDate = todayStr();
-  let stationOfflineStreaks = {}; // stationId -> consecutive offline poll count (in-memory only)
+  let presenceState = loadPresenceState(); // stationId -> { offlineStreak, gameCandidateTitle, gameCandidateStreak } — persisted, see loadPresenceState
   let stationPollTimer = null;
   let stkPolls = {}; // sessionId -> {timer, attempts}
 
@@ -994,29 +1014,59 @@
   function handleStationPresence(st, data) {
     const isOnline = data.onlineStatus === "online";
     let s = findActiveSessionForStation(st.id);
+    const ps = presenceState[st.id] || { offlineStreak: 0, gameCandidateTitle: undefined, gameCandidateStreak: 0 };
 
     if (!isOnline) {
       if (s) {
-        stationOfflineStreaks[st.id] = (stationOfflineStreaks[st.id] || 0) + 1;
-        if (stationOfflineStreaks[st.id] >= OFFLINE_STREAK_TO_END) {
+        ps.offlineStreak = (ps.offlineStreak || 0) + 1;
+        if (ps.offlineStreak >= OFFLINE_STREAK_TO_END) {
           autoEndSession(s.id);
-          delete stationOfflineStreaks[st.id];
+          delete presenceState[st.id];
+          savePresenceState();
+          return;
         }
       }
+      presenceState[st.id] = ps;
+      savePresenceState();
       return;
     }
-    stationOfflineStreaks[st.id] = 0;
+    ps.offlineStreak = 0;
 
     const nowTitle = data.currentGame ? data.currentGame.title : null;
 
-    // Per-game billing: each game is its own billable charge. The moment
-    // the title changes — they exit to the home screen, or jump straight
-    // into a different game — close out what they just played and drop it
-    // into the ledger as unpaid. Don't wait for the whole console to go
-    // offline; staff should see "awaiting payment" as soon as the game ends.
+    // Per-game billing: each game is its own billable charge. But PSN's
+    // presence data blips briefly — a loading screen, a match-end summary,
+    // a menu between rounds — even while the customer never left the game.
+    // Only treat a game as actually finished once the SAME new reading
+    // (a different title, or nothing running) shows up on several
+    // consecutive polls in a row; a single blip just gets ignored and
+    // billing continues under the game already running.
     if (s && s.billingMode === "per-game" && s.currentGame && nowTitle !== s.currentGame) {
-      autoEndSession(s.id);
-      s = null;
+      if (ps.gameCandidateTitle === nowTitle) {
+        ps.gameCandidateStreak = (ps.gameCandidateStreak || 0) + 1;
+      } else {
+        ps.gameCandidateTitle = nowTitle;
+        ps.gameCandidateStreak = 1;
+      }
+      if (ps.gameCandidateStreak >= GAME_END_STREAK_TO_CONFIRM) {
+        autoEndSession(s.id);
+        s = null;
+        delete presenceState[st.id];
+        savePresenceState();
+      } else {
+        presenceState[st.id] = ps;
+        savePresenceState();
+        return; // not confirmed yet — keep billing the game already running
+      }
+    } else if (s && nowTitle === s.currentGame && (ps.gameCandidateStreak || 0) > 0) {
+      // The title we thought might be ending is back to normal — clear it.
+      ps.gameCandidateTitle = undefined;
+      ps.gameCandidateStreak = 0;
+      presenceState[st.id] = ps;
+      savePresenceState();
+    } else {
+      presenceState[st.id] = ps;
+      savePresenceState();
     }
 
     if (!s) {
